@@ -1,4 +1,4 @@
-from models import Owner, Book, db, app
+from config import app, db
 from flask import request, jsonify
 from flask_caching import Cache
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, create_refresh_token
@@ -8,13 +8,9 @@ from flask_bcrypt import Bcrypt
 import redis
 from datetime import timedelta
 from flask_bcrypt import Bcrypt
-from dotenv import load_dotenv
-import os, secrets
-
-load_dotenv()
+import os
 
 
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("SQLALCHEMY_DATABASE_URI")
 app.config['JWT_SECRET_KEY'] = os.getenv("SECRET_KEY")
 app.config['CACHE_TYPE'] = 'RedisCache' 
 app.config['CACHE_REDIS_HOST'] = 'localhost'
