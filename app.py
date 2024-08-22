@@ -1,4 +1,5 @@
 from config import app, db
+from models import Owner, Book
 from flask import request, jsonify
 from flask_caching import Cache
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, create_refresh_token
