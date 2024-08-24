@@ -95,16 +95,16 @@ def user_register():
 def user_login():
     try:
         data = request.get_json()
-        username = data["email"]
+        email = data["email"]
         password = data["password"]
 
-        user = Owner.query.filter_by(username=username).first()
+        user = Owner.query.filter_by(email=email).first()
 
         if user is None:
             return jsonify({"status": "Bad request", "message": "User not found", "statusCode": 404}), 404
         if bcrypt.check_password_hash(user.password, password):
-            access_token = create_access_token(identity=username, expires_delta=expiration)
-            refresh_token = create_refresh_token(identity=username)
+            access_token = create_access_token(identity=email, expires_delta=expiration)
+            refresh_token = create_refresh_token(identity=email)
             return jsonify({
                 "Status": "Success",
                 "Message": "Login Successful",
@@ -125,3 +125,164 @@ def user_login():
                         "status": "Bad request", 
                         "message": "Authentication failed", 
                         "statusCode": 401})
+    
+
+# Implement a refresh token endpoint
+@app.route('/refresh', methods=['POST'])
+@jwt_required(refresh=True)
+def refresh():
+    try:
+        current_user = get_jwt_identity()  
+        new_access_token = create_access_token(identity=current_user, expires_delta=expiration)
+        return jsonify({
+            "Status": "Success",
+            "Message": "Token Refreshed",
+            "Access_Token": new_access_token
+        }), 200
+    except:
+        return jsonify({"Status": "Bad request", 
+                        "Message": "Token refresh failed", 
+                        "StatusCode": 401}), 401
+
+
+# Implement an endpoint for adding a book
+@app.route("/add/book", methods=["POST"])
+@jwt_required()
+def add_book():
+    try:
+        data = request.get_json()
+        book_name = data["name"]
+        book_description = data["description"]
+        first_name = data["author_first_name"]
+        last_name = data["author_last_name"]
+
+        new_book = Book(
+            name = book_name,
+            description = book_description,
+            author_first_name = first_name,
+            author_last_name = last_name
+        )
+
+        validate_model(new_book)
+        db.session.add(new_book)
+        db.session.commit()
+
+        return jsonify({
+            "Status": "Success",
+            "Message": "Book Added Successfully",
+                "librarian": {
+                    "id": new_book.id,
+                    "name": new_book.name,
+                    "description": new_book.description,
+                    "author_first_name": new_book.author_first_name,
+                    "author_last_name": new_book.author_last_name
+                }
+            }
+        ), 200
+    except:
+        return jsonify({
+                        "status": "Bad request", 
+                        "message": "Book failed to be added", 
+                        "statusCode": 401})
+
+
+# Implement an endpoint for getting all books
+@app.route("/books", methods=["GET"])
+@cache.cached(timeout=60, key_prefix='all_books')  
+def get_books():
+    try:
+        books = Book.query.all()
+        books_data = [{
+            "id": book.id,
+            "name": book.name,
+            "description": book.description,
+            "author_first_name": book.author_first_name,
+            "author_last_name": book.author_last_name
+        } for book in books]
+        return jsonify({"books": books_data}), 200
+    except:
+        return jsonify({
+            "Message": "Unable to retrieve books!!!"
+        })
+
+
+# Implement an endpoint for getting a particular book
+@app.route("/book/<int:book_id>", methods=["GET"])
+@cache.cached(timeout=60, key_prefix="book_<book_id>")  
+def get_book(book_id):
+    try:
+        book = Book.query.get(book_id)
+        if book is None:
+            return jsonify({"status": "Not Found", "message": "Book not found", "statusCode": 404}), 404
+        
+        book_data = {
+            "id": book.id,
+            "name": book.name,
+            "description": book.description,
+            "author_first_name": book.author_first_name,
+            "author_last_name": book.author_last_name
+        }
+
+        return jsonify({"Status": "Success", 
+                        "Book": book_data}), 200
+    except:
+        return jsonify({
+            "Status": "Not Found",
+            "Message": "Book does not exist"
+        })
+        
+
+#Implement an endpoint for updating a particular book
+@app.route("/book/update/<int:book_id>", methods=["PATCH"])
+@jwt_required()
+def update_book(book_id):
+    try:
+        data = request.get_json()
+        book = Book.query.get(book_id)
+        if not book:
+            return jsonify({"status": "Not Found", "message": "Book not found", "statusCode": 404}), 404
+
+        book.name = data.get("name", book.name)
+        book.description = data.get("description", book.description)
+        book.author_first_name = data.get("author_first_name", book.author_first_name)
+        book.author_last_name = data.get("author_last_name", book.author_last_name)
+        db.session.commit()
+
+        # Clear cache for this book after update
+        cache.delete(f'book_{book_id}')
+
+        return jsonify({"Status": "Success", 
+                        "Message": "Book updated successfully"}), 200
+    except:
+        return jsonify({"Status": "Bad request", 
+                        "Message": "Update failed", 
+                        "StatusCode": 400}), 400
+
+
+# Implement an endpoint for deleting a book
+@app.route("/book/delete/<int:book_id>", methods=["DELETE"])
+@jwt_required()
+def delete_book(book_id):
+    try:
+        book = Book.query.get(book_id)
+        if not book:
+            return jsonify({"status": "Not Found", "message": "Book not found", "statusCode": 404}), 404
+
+        db.session.delete(book)
+        db.session.commit()
+
+        # Clear the cache for this book
+        cache.delete(f'book_{book_id}')
+
+        return jsonify({"Status": "Success", 
+                        "Message": "Book deleted successfully"}), 200
+    except:
+        return jsonify({"Status": "Bad request", 
+                        "Message": "Delete failed", 
+                        "StatusCode": 400}), 400
+    
+with app.app_context():
+    db.create_all()       
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=4000)
