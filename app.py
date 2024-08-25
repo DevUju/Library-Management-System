@@ -260,9 +260,9 @@ def get_book(book_id):
 @app.route("/book/update/<int:book_id>", methods=["PATCH"])
 @jwt_required()
 def update_book(book_id):
-    data = request.get_json()
-    book = Book.query.get(book_id)
     try:
+        data = request.get_json()
+        book = Book.query.get(book_id)
         print("Visible Data")
         if not book:
             return jsonify({"status": "Not Found", "message": "Book not found", "statusCode": 404}), 404
@@ -273,7 +273,7 @@ def update_book(book_id):
         book.author_last_name = data.get("author_last_name", book.author_last_name)
         db.session.commit()
 
-        cache.delete(f'book_{book_id}')
+        # cache.delete(f'book_{book_id}')
 
         return jsonify({"Status": "Success", 
                         "Message": "Book updated successfully"}), 200
