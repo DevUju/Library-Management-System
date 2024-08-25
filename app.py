@@ -9,7 +9,10 @@ from flask_bcrypt import Bcrypt
 import redis
 from datetime import timedelta
 from flask_bcrypt import Bcrypt
+from dotenv import load_dotenv
 import os
+
+load_dotenv()
 
 
 jwt = JWTManager(app)
@@ -20,7 +23,12 @@ expiration = timedelta(days=30)
 
 
 # Initialize Redis client directly
-redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
+# redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
+
+redis_client = redis.Redis(
+  host=os.getenv("REDIS_HOST"),
+  port=os.getenv("REDIS_PORT"),
+  password=os.getenv("REDIS_PASSWORD"))
 
 
 # Validate user model
