@@ -1,5 +1,3 @@
-from flask import Flask
-from flask_sqlalchemy import SQLAlchemy
 from config import db
 
 class Owner(db.Model):

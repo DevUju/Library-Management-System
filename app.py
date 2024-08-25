@@ -12,13 +12,6 @@ from flask_bcrypt import Bcrypt
 import os
 
 
-app.config['JWT_SECRET_KEY'] = os.getenv("SECRET_KEY")
-app.config['CACHE_TYPE'] = 'RedisCache' 
-app.config['CACHE_REDIS_HOST'] = 'localhost'
-app.config['CACHE_REDIS_PORT'] = 6379
-app.config['CACHE_DEFAULT_TIMEOUT'] = 300
-
-
 jwt = JWTManager(app)
 cache = Cache(app)
 migrate = Migrate(app, db)
