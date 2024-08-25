@@ -258,6 +258,7 @@ def get_book(book_id):
 
 # Endpoint for updating a particular book
 @app.route("/book/update/<int:book_id>", methods=["PATCH"])
+@cache.cached(timeout=60, key_prefix="book_<book_id>")
 @jwt_required()
 def update_book(book_id):
     try:
@@ -273,7 +274,8 @@ def update_book(book_id):
         book.author_last_name = data.get("author_last_name", book.author_last_name)
         db.session.commit()
 
-        # cache.delete(f'book_{book_id}')
+        print(cache.get(book_id))
+        cache.delete(f'book_{book_id}')
 
         return jsonify({"Status": "Success", 
                         "Message": "Book updated successfully"}), 200
@@ -285,6 +287,7 @@ def update_book(book_id):
 
 # Endpoint for deleting a book
 @app.route("/book/delete/<int:book_id>", methods=["DELETE"])
+@cache.cached(timeout=60, key_prefix="book_<book_id>")
 @jwt_required()
 def delete_book(book_id):
     try:
