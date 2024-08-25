@@ -8,12 +8,10 @@ from sqlalchemy.exc import IntegrityError
 from flask_bcrypt import Bcrypt
 import redis
 from datetime import timedelta
-from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
 import os
 
 load_dotenv()
-
 
 jwt = JWTManager(app)
 cache = Cache(app)
@@ -21,15 +19,12 @@ migrate = Migrate(app, db)
 bcrypt = Bcrypt(app)
 expiration = timedelta(days=30)
 
-
 # Initialize Redis client directly
-# redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
-
 redis_client = redis.Redis(
   host=os.getenv("REDIS_HOST"),
   port=os.getenv("REDIS_PORT"),
-  password=os.getenv("REDIS_PASSWORD"))
-
+  password=os.getenv("REDIS_PASSWORD"),
+  decode_responses=True)
 
 # Validate user model
 def validate_model(model):
@@ -42,10 +37,9 @@ def validate_model(model):
         for err in e.orig.args:
             errors.append({"field": err.split()[0], "message": " ".join(err.split()[1:])})
         return jsonify({"errors": errors}), 422
-    return  jsonify({"message": "User created successfully!"}), 201
+    return jsonify({"message": "User created successfully!"}), 201
 
-
-#Implement User Registration
+# Implement User Registration
 @app.route("/user/register", methods=["POST"])
 def user_register():
     try:
@@ -55,46 +49,29 @@ def user_register():
         user_email = data["email"]
         user_password = data["password"]
         
-        existing_user = Owner.query.filter((Owner.email == user_email)).first()
+        existing_user = Owner.query.filter_by(email=user_email).first()
         if existing_user:
             return jsonify({
                 "message": "Email already exists", 
                 "status": "Bad request", 
-                "statusCode": 401})
-
+                "statusCode": 401}), 401
 
         hashed_password = bcrypt.generate_password_hash(user_password).decode("utf-8")
-
         new_user = Owner(
-            first_name = f_name,
-            last_name = l_name,
-            email = user_email,
-            password = hashed_password
+            first_name=f_name,
+            last_name=l_name,
+            email=user_email,
+            password=hashed_password
         )
 
-        validate_model(new_user)
-        db.session.add(new_user)
-        db.session.commit()
-
+        return validate_model(new_user)
+    except Exception as e:
         return jsonify({
-            "Status": "Success",
-            "Message": "Registration Successful",
-                "User": {
-                    "id": new_user.id,
-                    "first_name": new_user.first_name,
-                    "last_name": new_user.last_name,
-                    "email": new_user.email
-                }
-            }
-        ), 200
-    except:
-        return jsonify({
-                        "status": "Bad request", 
-                        "message": "Registration failed", 
-                        "statusCode": 401})
+            "status": "Bad request", 
+            "message": f"Registration failed: {str(e)}", 
+            "statusCode": 401}), 401
 
-
-#Implement User Login and Authentication
+# Implement User Login and Authentication
 @app.route("/user/login", methods=["POST"])
 def user_login():
     try:
@@ -125,15 +102,15 @@ def user_login():
                         "last_name": user.last_name,
                         "email": user.email
                     }
-
                 }
             }), 200
-    except:
+        else:
+            return jsonify({"status": "Bad request", "message": "Invalid credentials", "statusCode": 401}), 401
+    except Exception as e:
         return jsonify({
-                        "status": "Bad request", 
-                        "message": f"Authentication failed", 
-                        "statusCode": 401})
-    
+            "status": "Bad request", 
+            "message": f"Authentication failed: {str(e)}", 
+            "statusCode": 401}), 401
 
 # Implement a refresh token endpoint
 @app.route('/refresh', methods=['POST'])
@@ -147,11 +124,10 @@ def refresh():
             "Message": "Token Refreshed",
             "Access_Token": new_access_token
         }), 200
-    except:
+    except Exception as e:
         return jsonify({"Status": "Bad request", 
-                        "Message": "Token refresh failed", 
+                        "Message": f"Token refresh failed: {str(e)}", 
                         "StatusCode": 401}), 401
-
 
 # Implement a logout endpoint
 @app.route("/user/logout", methods=["POST"])
@@ -160,18 +136,17 @@ def user_logout():
     try:
         access_token = request.headers['Authorization'].split(" ")[1]
         
-        cache.delete(access_token)
+        redis_client.delete(f"token:{get_jwt_identity()}")
         return jsonify({
             "Status": "Success",
             "Message": "Logged out successfully"
         }), 200
-    except:
+    except Exception as e:
         return jsonify({
             "Status": "Bad request",
-            "Message": "Logout failed",
+            "Message": f"Logout failed: {str(e)}",
             "StatusCode": 400
         }), 400
-
 
 # Endpoint for adding a book
 @app.route("/add/book", methods=["POST"])
@@ -191,24 +166,12 @@ def add_book():
             author_last_name=last_name
         )
 
-        validate_model(new_book)
-        return jsonify({
-            "Status": "Success",
-            "Message": "Book Added Successfully",
-            "book_data": {
-                "id": new_book.id,
-                "name": new_book.name,
-                "description": new_book.description,
-                "author_first_name": new_book.author_first_name,
-                "author_last_name": new_book.author_last_name
-            }
-        }), 200
-    except:
+        return validate_model(new_book)
+    except Exception as e:
         return jsonify({
             "status": "Bad request", 
-            "message": "Book failed to be added", 
-            "statusCode": 401})
-
+            "message": f"Book failed to be added: {str(e)}", 
+            "statusCode": 401}), 401
 
 # Endpoint for getting all books
 @app.route("/books", methods=["GET"])
@@ -224,15 +187,12 @@ def get_books():
             "author_last_name": book.author_last_name
         } for book in books]
         return jsonify({"books": books_data}), 200
-    except:
-        return jsonify({
-            "Message": "Unable to retrieve books!!!"
-        })
-
+    except Exception as e:
+        return jsonify({"Message": f"Unable to retrieve books: {str(e)}"}), 400
 
 # Endpoint for getting a particular book
 @app.route("/book/<int:book_id>", methods=["GET"])
-@cache.cached(timeout=60, key_prefix="book_<book_id>")  
+@cache.cached(timeout=60, key_prefix=lambda: f"book_{book_id}")  
 def get_book(book_id):
     try:
         book = Book.query.get(book_id)
@@ -249,16 +209,12 @@ def get_book(book_id):
 
         return jsonify({"Status": "Success", 
                         "Book": book_data}), 200
-    except:
-        return jsonify({
-            "Status": "Not Found",
-            "Message": "Book does not exist"
-        })
-
+    except Exception as e:
+        return jsonify({"Status": "Not Found", 
+                        "Message": f"Book does not exist: {str(e)}"}), 404
 
 # Endpoint for updating a particular book
 @app.route("/book/update/<int:book_id>", methods=["PATCH"])
-@cache.cached(timeout=60, key_prefix="book_<book_id>")
 @jwt_required()
 def update_book(book_id):
     try:
@@ -273,7 +229,7 @@ def update_book(book_id):
         book.author_last_name = data.get("author_last_name", book.author_last_name)
         db.session.commit()
 
-        cache.delete("book_<book_id>")
+        cache.delete(f"book_{book_id}")
 
         return jsonify({"Status": "Success", 
                         "Message": "Book updated successfully"}), 200
@@ -284,7 +240,6 @@ def update_book(book_id):
 
 # Endpoint for deleting a book
 @app.route("/book/delete/<int:book_id>", methods=["DELETE"])
-@cache.cached(timeout=60, key_prefix="book_<book_id>")
 @jwt_required()
 def delete_book(book_id):
     try:
@@ -295,15 +250,14 @@ def delete_book(book_id):
         db.session.delete(book)
         db.session.commit()
 
-        cache.delete("book_<book_id>")
+        cache.delete(f"book_{book_id}")
 
         return jsonify({"Status": "Success", 
                         "Message": "Book deleted successfully"}), 200
-    except:
+    except Exception as e:
         return jsonify({"Status": "Bad request", 
-                        "Message": "Delete failed", 
+                        "Message": f"Delete failed: {str(e)}", 
                         "StatusCode": 400}), 400
-
 
 with app.app_context():
     db.create_all()       
