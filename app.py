@@ -26,6 +26,10 @@ bcrypt = Bcrypt(app)
 expiration = timedelta(days=30)
 
 
+# Initialize Redis client directly
+redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
+
+
 # Validate user model
 def validate_model(model):
     try:
@@ -50,7 +54,6 @@ def user_register():
         user_email = data["email"]
         user_password = data["password"]
         
-        # Check if username or email already exists
         existing_user = Owner.query.filter((Owner.email == user_email)).first()
         if existing_user:
             return jsonify({
@@ -75,7 +78,7 @@ def user_register():
         return jsonify({
             "Status": "Success",
             "Message": "Registration Successful",
-                "librarian": {
+                "User": {
                     "id": new_user.id,
                     "first_name": new_user.first_name,
                     "last_name": new_user.last_name,
@@ -105,6 +108,10 @@ def user_login():
         if bcrypt.check_password_hash(user.password, password):
             access_token = create_access_token(identity=email, expires_delta=expiration)
             refresh_token = create_refresh_token(identity=email)
+
+            redis_client.set(f"token:{email}", access_token)
+            redis_client.expire(f"token:{email}", timedelta(hours=1))
+
             return jsonify({
                 "Status": "Success",
                 "Message": "Login Successful",
@@ -123,7 +130,7 @@ def user_login():
     except:
         return jsonify({
                         "status": "Bad request", 
-                        "message": "Authentication failed", 
+                        "message": f"Authentication failed", 
                         "statusCode": 401})
     
 
@@ -145,7 +152,27 @@ def refresh():
                         "StatusCode": 401}), 401
 
 
-# Implement an endpoint for adding a book
+# Implement a logout endpoint
+@app.route("/user/logout", methods=["POST"])
+@jwt_required()
+def user_logout():
+    try:
+        access_token = request.headers['Authorization'].split(" ")[1]
+        
+        cache.delete(access_token)
+        return jsonify({
+            "Status": "Success",
+            "Message": "Logged out successfully"
+        }), 200
+    except:
+        return jsonify({
+            "Status": "Bad request",
+            "Message": "Logout failed",
+            "StatusCode": 400
+        }), 400
+
+
+# Endpoint for adding a book
 @app.route("/add/book", methods=["POST"])
 @jwt_required()
 def add_book():
@@ -157,36 +184,32 @@ def add_book():
         last_name = data["author_last_name"]
 
         new_book = Book(
-            name = book_name,
-            description = book_description,
-            author_first_name = first_name,
-            author_last_name = last_name
+            name=book_name,
+            description=book_description,
+            author_first_name=first_name,
+            author_last_name=last_name
         )
 
         validate_model(new_book)
-        db.session.add(new_book)
-        db.session.commit()
-
         return jsonify({
             "Status": "Success",
             "Message": "Book Added Successfully",
-                "librarian": {
-                    "id": new_book.id,
-                    "name": new_book.name,
-                    "description": new_book.description,
-                    "author_first_name": new_book.author_first_name,
-                    "author_last_name": new_book.author_last_name
-                }
+            "book_data": {
+                "id": new_book.id,
+                "name": new_book.name,
+                "description": new_book.description,
+                "author_first_name": new_book.author_first_name,
+                "author_last_name": new_book.author_last_name
             }
-        ), 200
+        }), 200
     except:
         return jsonify({
-                        "status": "Bad request", 
-                        "message": "Book failed to be added", 
-                        "statusCode": 401})
+            "status": "Bad request", 
+            "message": "Book failed to be added", 
+            "statusCode": 401})
 
 
-# Implement an endpoint for getting all books
+# Endpoint for getting all books
 @app.route("/books", methods=["GET"])
 @cache.cached(timeout=60, key_prefix='all_books')  
 def get_books():
@@ -206,7 +229,7 @@ def get_books():
         })
 
 
-# Implement an endpoint for getting a particular book
+# Endpoint for getting a particular book
 @app.route("/book/<int:book_id>", methods=["GET"])
 @cache.cached(timeout=60, key_prefix="book_<book_id>")  
 def get_book(book_id):
@@ -214,7 +237,7 @@ def get_book(book_id):
         book = Book.query.get(book_id)
         if book is None:
             return jsonify({"status": "Not Found", "message": "Book not found", "statusCode": 404}), 404
-        
+
         book_data = {
             "id": book.id,
             "name": book.name,
@@ -230,9 +253,9 @@ def get_book(book_id):
             "Status": "Not Found",
             "Message": "Book does not exist"
         })
-        
 
-#Implement an endpoint for updating a particular book
+
+# Endpoint for updating a particular book
 @app.route("/book/update/<int:book_id>", methods=["PATCH"])
 @jwt_required()
 def update_book(book_id):
@@ -248,7 +271,6 @@ def update_book(book_id):
         book.author_last_name = data.get("author_last_name", book.author_last_name)
         db.session.commit()
 
-        # Clear cache for this book after update
         cache.delete(f'book_{book_id}')
 
         return jsonify({"Status": "Success", 
@@ -259,7 +281,7 @@ def update_book(book_id):
                         "StatusCode": 400}), 400
 
 
-# Implement an endpoint for deleting a book
+# Endpoint for deleting a book
 @app.route("/book/delete/<int:book_id>", methods=["DELETE"])
 @jwt_required()
 def delete_book(book_id):
@@ -271,7 +293,6 @@ def delete_book(book_id):
         db.session.delete(book)
         db.session.commit()
 
-        # Clear the cache for this book
         cache.delete(f'book_{book_id}')
 
         return jsonify({"Status": "Success", 
@@ -280,7 +301,8 @@ def delete_book(book_id):
         return jsonify({"Status": "Bad request", 
                         "Message": "Delete failed", 
                         "StatusCode": 400}), 400
-    
+
+
 with app.app_context():
     db.create_all()       
 
