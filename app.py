@@ -260,9 +260,10 @@ def get_book(book_id):
 @app.route("/book/update/<int:book_id>", methods=["PATCH"])
 @jwt_required()
 def update_book(book_id):
+    data = request.get_json()
     book = Book.query.get(book_id)
     try:
-        data = request.get_json()
+        print("Visible Data")
         if not book:
             return jsonify({"status": "Not Found", "message": "Book not found", "statusCode": 404}), 404
 
