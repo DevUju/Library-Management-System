@@ -135,8 +135,7 @@ def refresh():
 def user_logout():
     try:
         access_token = request.headers['Authorization'].split(" ")[1]
-        
-        redis_client.delete(f"token:{get_jwt_identity()}")
+        redis_client.delete(f"token:{get_jwt_identity()},", access_token)
         return jsonify({
             "Status": "Success",
             "Message": "Logged out successfully"
