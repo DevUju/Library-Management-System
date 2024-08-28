@@ -23,7 +23,11 @@ bcrypt = Bcrypt(app)
 expiration = timedelta(days=30)
 
 # Initialize Redis client
-redis_client = redis.Redis(host=os.getenv("CACHE_REDIS_HOST"), port=os.getenv("CACHE_REDIS_PORT"), db=os.getenv("DB"))
+redis_client = redis.Redis(
+  host=os.getenv("CACHE_REDIS_HOST"),
+  port=os.getenv("CACHE_REDIS_PORT"),
+  password=os.getenv("CACHE_REDIS_PASSWORD"))
+# redis_client = redis.Redis(host=os.getenv("CACHE_REDIS_HOST"), port=os.getenv("CACHE_REDIS_PORT"), db=os.getenv("DB"))
 
 # Utility function to validate and commit a model to the database
 def validate_model(model):
