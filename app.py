@@ -7,31 +7,25 @@ from flask_migrate import Migrate
 from sqlalchemy.exc import IntegrityError
 from flask_bcrypt import Bcrypt
 import redis
+import json
 from datetime import timedelta
-from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
 import os
 
+# Load environment variables
 load_dotenv()
 
-
+# Initialize Flask extensions
 jwt = JWTManager(app)
 cache = Cache(app)
 migrate = Migrate(app, db)
 bcrypt = Bcrypt(app)
 expiration = timedelta(days=30)
 
+# Initialize Redis client
+redis_client = redis.Redis(host=os.getenv("CACHE_REDIS_HOST"), port=os.getenv("CACHE_REDIS_PORT"), db=os.getenv("DB"))
 
-# Initialize Redis client directly
-# redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
-
-redis_client = redis.Redis(
-  host=os.getenv("REDIS_HOST"),
-  port=os.getenv("REDIS_PORT"),
-  password=os.getenv("REDIS_PASSWORD"))
-
-
-# Validate user model
+# Utility function to validate and commit a model to the database
 def validate_model(model):
     try:
         db.session.add(model)
@@ -45,7 +39,7 @@ def validate_model(model):
     return  jsonify({"message": "User created successfully!"}), 201
 
 
-#Implement User Registration
+# User Registration Endpoint
 @app.route("/user/register", methods=["POST"])
 def user_register():
     try:
@@ -54,47 +48,36 @@ def user_register():
         l_name = data["last_name"]
         user_email = data["email"]
         user_password = data["password"]
-        
-        existing_user = Owner.query.filter((Owner.email == user_email)).first()
-        if existing_user:
-            return jsonify({
-                "message": "Email already exists", 
-                "status": "Bad request", 
-                "statusCode": 401})
 
+        existing_user = Owner.query.filter_by(email=user_email).first()
+        if existing_user:
+            return jsonify({"message": "Email already exists", "status": "Bad request", "statusCode": 401})
 
         hashed_password = bcrypt.generate_password_hash(user_password).decode("utf-8")
-
         new_user = Owner(
-            first_name = f_name,
-            last_name = l_name,
-            email = user_email,
-            password = hashed_password
+            first_name=f_name,
+            last_name=l_name,
+            email=user_email,
+            password=hashed_password
         )
 
         validate_model(new_user)
-        db.session.add(new_user)
-        db.session.commit()
-
         return jsonify({
-            "Status": "Success",
-            "Message": "Registration Successful",
-                "User": {
-                    "id": new_user.id,
-                    "first_name": new_user.first_name,
-                    "last_name": new_user.last_name,
-                    "email": new_user.email
-                }
-            }
-        ), 200
-    except:
-        return jsonify({
-                        "status": "Bad request", 
-                        "message": "Registration failed", 
-                        "statusCode": 401})
+                "Status": "Success",
+                "Message": "Registration Successful",
+                "data": {
+                    "user_data": {
+                        "id": new_user.id,
+                        "first_name": new_user.first_name,
+                        "last_name": new_user.last_name,
+                        "email": new_user.email}}})
+    except Exception as e:
+        return jsonify({"status": "Bad request", 
+                        "message": f"Registration failed: {str(e)}", 
+                        "statusCode": 401}), 401
 
 
-#Implement User Login and Authentication
+# User Login and Authentication Endpoint
 @app.route("/user/login", methods=["POST"])
 def user_login():
     try:
@@ -106,6 +89,7 @@ def user_login():
 
         if user is None:
             return jsonify({"status": "Bad request", "message": "User not found", "statusCode": 404}), 404
+
         if bcrypt.check_password_hash(user.password, password):
             access_token = create_access_token(identity=email, expires_delta=expiration)
             refresh_token = create_refresh_token(identity=email)
@@ -125,55 +109,47 @@ def user_login():
                         "last_name": user.last_name,
                         "email": user.email
                     }
-
                 }
             }), 200
-    except:
-        return jsonify({
-                        "status": "Bad request", 
-                        "message": f"Authentication failed", 
-                        "statusCode": 401})
-    
+        else:
+            return jsonify({"status": "Bad request", 
+                            "message": "Incorrect password", 
+                            "statusCode": 401}), 401
+    except Exception as e:
+        return jsonify({"status": "Bad request", 
+                        "message": f"Authentication failed: {str(e)}", 
+                        "statusCode": 401}), 401
 
-# Implement a refresh token endpoint
+# Refresh Token Endpoint
 @app.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True)
 def refresh():
     try:
-        current_user = get_jwt_identity()  
+        current_user = get_jwt_identity()
         new_access_token = create_access_token(identity=current_user, expires_delta=expiration)
-        return jsonify({
-            "Status": "Success",
-            "Message": "Token Refreshed",
-            "Access_Token": new_access_token
-        }), 200
-    except:
+        return jsonify({"Status": "Success", 
+                        "Message": "Token Refreshed", 
+                        "Access_Token": new_access_token}), 200
+    except Exception:
         return jsonify({"Status": "Bad request", 
                         "Message": "Token refresh failed", 
                         "StatusCode": 401}), 401
 
-
-# Implement a logout endpoint
+# User Logout Endpoint
 @app.route("/user/logout", methods=["POST"])
 @jwt_required()
 def user_logout():
     try:
         access_token = request.headers['Authorization'].split(" ")[1]
-        
         cache.delete(access_token)
-        return jsonify({
-            "Status": "Success",
-            "Message": "Logged out successfully"
-        }), 200
-    except:
-        return jsonify({
-            "Status": "Bad request",
-            "Message": "Logout failed",
-            "StatusCode": 400
-        }), 400
+        return jsonify({"Status": "Success", 
+                        "Message": "Logged out successfully"}), 200
+    except Exception:
+        return jsonify({"Status": "Bad request", 
+                        "Message": "Logout failed", 
+                        "StatusCode": 400}), 400
 
-
-# Endpoint for adding a book
+# Add Book Endpoint
 @app.route("/add/book", methods=["POST"])
 @jwt_required()
 def add_book():
@@ -194,27 +170,30 @@ def add_book():
         validate_model(new_book)
         return jsonify({
             "Status": "Success",
-            "Message": "Book Added Successfully",
+            "Message": "Book added successfully",
             "book_data": {
                 "id": new_book.id,
                 "name": new_book.name,
                 "description": new_book.description,
                 "author_first_name": new_book.author_first_name,
                 "author_last_name": new_book.author_last_name
-            }
-        }), 200
-    except:
-        return jsonify({
-            "status": "Bad request", 
-            "message": "Book failed to be added", 
-            "statusCode": 401})
+        }}), 201
+    except Exception:
+        return jsonify({"status": "Bad request", 
+                        "message": "Book failed to be added", 
+                        "statusCode": 401})
 
-
-# Endpoint for getting all books
+# Get All Books Endpoint
 @app.route("/books", methods=["GET"])
-@cache.cached(timeout=60, key_prefix='all_books')  
 def get_books():
     try:
+        cache_key = "all_books"
+        cached_books = redis_client.get(cache_key)
+
+        if cached_books:
+            books_data = json.loads(cached_books)
+            return jsonify({"books": books_data}), 200
+
         books = Book.query.all()
         books_data = [{
             "id": book.id,
@@ -223,18 +202,25 @@ def get_books():
             "author_first_name": book.author_first_name,
             "author_last_name": book.author_last_name
         } for book in books]
+
+        redis_client.setex(cache_key, timedelta(seconds=60), json.dumps(books_data))
+
         return jsonify({"books": books_data}), 200
-    except:
-        return jsonify({
-            "Message": "Unable to retrieve books!!!"
-        })
+    except Exception as e:
+        return jsonify({"Message": f"Unable to retrieve books!!! {str(e)}"}), 500
 
 
-# Endpoint for getting a particular book
+# Get a Particular Book Endpoint
 @app.route("/book/<int:book_id>", methods=["GET"])
-@cache.cached(timeout=60, key_prefix="book_<book_id>")  
 def get_book(book_id):
     try:
+        cache_key = f"book_{book_id}"
+        cached_book = redis_client.get(cache_key)
+
+        if cached_book:
+            book_data = json.loads(cached_book)
+            return jsonify({"Status": "Success", "Book": book_data}), 200
+
         book = Book.query.get(book_id)
         if book is None:
             return jsonify({"status": "Not Found", "message": "Book not found", "statusCode": 404}), 404
@@ -247,16 +233,14 @@ def get_book(book_id):
             "author_last_name": book.author_last_name
         }
 
-        return jsonify({"Status": "Success", 
-                        "Book": book_data}), 200
-    except:
-        return jsonify({
-            "Status": "Not Found",
-            "Message": "Book does not exist"
-        })
+        redis_client.setex(cache_key, timedelta(seconds=60), str(book_data))
+
+        return jsonify({"Status": "Success", "Book": book_data}), 200
+    except Exception as e:
+        return jsonify({"Status": "Error", "Message": f"An error occurred: {str(e)}"}), 500
 
 
-# Endpoint for updating a particular book
+# Update a Particular Book Endpoint
 @app.route("/book/update/<int:book_id>", methods=["PATCH"])
 @jwt_required()
 def update_book(book_id):
@@ -272,8 +256,19 @@ def update_book(book_id):
         book.author_first_name = data.get("author_first_name", book.author_first_name)
         book.author_last_name = data.get("author_last_name", book.author_last_name)
         db.session.commit()
-        
-        cache.delete(f'book_{book_id}')
+
+        book_data = {
+            "id": book.id,
+            "name": book.name,
+            "description": book.description,
+            "author_first_name": book.author_first_name,
+            "author_last_name": book.author_last_name
+        }
+
+        cache_key = f'book_{book_id}'
+        redis_client.delete(cache_key)
+
+        redis_client.setex(cache_key, timedelta(seconds=60), json.dumps(book_data))
 
         return jsonify({"Status": "Success", 
                         "Message": "Book updated successfully"}), 200
@@ -283,7 +278,7 @@ def update_book(book_id):
                         "StatusCode": 400}), 400
 
 
-# Endpoint for deleting a book
+# Delete a Book Endpoint
 @app.route("/book/delete/<int:book_id>", methods=["DELETE"])
 @jwt_required()
 def delete_book(book_id):
@@ -295,7 +290,8 @@ def delete_book(book_id):
         db.session.delete(book)
         db.session.commit()
 
-        cache.delete(f'book_{book_id}')
+        cache_key = f'book_{book_id}'
+        redis_client.delete(cache_key)
 
         return jsonify({"Status": "Success", 
                         "Message": "Book deleted successfully"}), 200
@@ -306,7 +302,7 @@ def delete_book(book_id):
 
 
 with app.app_context():
-    db.create_all()       
+    db.create_all()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=4000)

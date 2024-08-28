@@ -12,8 +12,8 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("SQLALCHEMY_DATABASE_URI")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY")
 app.config["CACHE_TYPE"] = os.getenv("CACHE_TYPE") 
-# app.config["CACHE_REDIS_HOST"] = os.getenv("CACHE_REDIS_HOST")
-# app.config["CACHE_REDIS_PORT"] = os.getenv("CACHE_REDIS_PORT")
+app.config["CACHE_REDIS_HOST"] = os.getenv("CACHE_REDIS_HOST")
+app.config["CACHE_REDIS_PORT"] = os.getenv("CACHE_REDIS_PORT")
 app.config["CACHE_DEFAULT_TIMEOUT"] = os.getenv("CACHE_DEFAULT_TIMEOUT")
 
 # Initialize the database
